@@ -4,7 +4,7 @@ services:
     image: postgres:15
     container_name: animal_services_db
     ports:
-      - "5432:5432"
+      - "5433:5432"
     environment:
       POSTGRES_DB:       animal_db
       POSTGRES_USER:     postgres
