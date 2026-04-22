@@ -1,0 +1,22 @@
+services:
+
+  postgres:
+    image: postgres:15
+    container_name: animal_services_db
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB:       animal_db
+      POSTGRES_USER:     postgres
+      POSTGRES_PASSWORD: postgres123
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./schema.sql:/docker-entrypoint-initdb.d/schema.sql  # runs once on first startup
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
