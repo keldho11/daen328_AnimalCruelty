@@ -1,14 +1,13 @@
-# load_db.py
-# Reads animal_services_clean.csv and loads it into the normalized PostgreSQL schema.
-# Run once after `docker compose up`: python load_db.py
-
 import os
 import pandas as pd
 import psycopg2
 from psycopg2.extras import execute_values
 from dotenv import load_dotenv
 
-load_dotenv()  # Load .env file
+from extract import extract
+from transform import transform
+
+load_dotenv()
 
 DB_PARAMS = {
     "dbname":   os.environ.get("DB_NAME",     "animal_db"),
@@ -18,16 +17,8 @@ DB_PARAMS = {
     "port":     os.environ.get("DB_PORT",     "5433"),
 }
 
-CLEAN_CSV = "animal_services_clean.csv"
-DATE_COLS = [
-    "ticket_created_date_time",
-    "ticket_last_update_date_time",
-    "ticket_closed_date_time",
-]
-
 
 def load_lookup(cursor, table: str, values: list[str]) -> dict[str, int]:
-    """Insert unique values into a lookup table, return name→id mapping."""
     rows = [(v,) for v in sorted(set(v for v in values if pd.notna(v)))]
     execute_values(
         cursor,
@@ -39,31 +30,26 @@ def load_lookup(cursor, table: str, values: list[str]) -> dict[str, int]:
 
 
 def main():
-    print(f"Reading {CLEAN_CSV}...")
-    df = pd.read_csv(CLEAN_CSV, parse_dates=DATE_COLS, date_format="mixed")
-    df["zip_code"] = pd.to_numeric(df["zip_code"], errors="coerce")
-    print(f"  {len(df):,} rows loaded")
+    print("Step 1: Extracting data from API...")
+    raw = extract()
 
-    print("Connecting to database...")
+    print("Step 2: Transforming data...")
+    df = transform(pd.DataFrame(raw))
+
+    print("Step 3: Connecting to PostgreSQL...")
     conn = psycopg2.connect(**DB_PARAMS)
     cur = conn.cursor()
-    print(f"  ✓ Connected to {DB_PARAMS['dbname']} at {DB_PARAMS['host']}:{DB_PARAMS['port']}")
+    print(f"  Connected to {DB_PARAMS['dbname']} at {DB_PARAMS['host']}:{DB_PARAMS['port']}")
 
-    print("Loading lookup tables...")
+    print("Step 4: Loading lookup tables...")
     issue_map    = load_lookup(cur, "issue_types",        df["issue_type"].tolist())
     status_map   = load_lookup(cur, "ticket_statuses",    df["ticket_status"].tolist())
     priority_map = load_lookup(cur, "priorities",         df["sr_priority"].tolist())
     method_map   = load_lookup(cur, "submission_methods", df["method_received"].tolist())
     district_map = load_lookup(cur, "districts",          df["neighborhood_district"].tolist())
     conn.commit()
-    print("  ✓ Lookup tables ready")
-    print(f"    issue_types:       {len(issue_map):,}")
-    print(f"    ticket_statuses:   {len(status_map):,}")
-    print(f"    priorities:        {len(priority_map):,}")
-    print(f"    submission_methods:{len(method_map):,}")
-    print(f"    districts:         {len(district_map):,}")
 
-    print("Loading tickets...")
+    print("Step 5: Inserting tickets...")
 
     def to_ts(val):
         return None if pd.isna(val) else val.to_pydatetime()
@@ -110,8 +96,8 @@ def main():
     conn.commit()
     cur.close()
     conn.close()
-    print(f"  ✓ {len(rows):,} tickets inserted")
-    print("Done.")
+    print(f"  {len(rows):,} tickets inserted")
+    print("ETL pipeline complete.")
 
 
 if __name__ == "__main__":
