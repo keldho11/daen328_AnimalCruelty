@@ -11,12 +11,39 @@ services:
       POSTGRES_PASSWORD: postgres123
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./schema.sql:/docker-entrypoint-initdb.d/schema.sql  # runs once on first startup
+      - ./schema.sql:/docker-entrypoint-initdb.d/schema.sql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 10s
       timeout: 5s
       retries: 5
+
+  etl:
+    build: .
+    command: python load_db.py
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DB_HOST:     postgres
+      DB_PORT:     5432
+      DB_NAME:     animal_db
+      DB_USER:     postgres
+      DB_PASSWORD: postgres123
+
+  streamlit:
+    build: .
+    ports:
+      - "8501:8501"
+    depends_on:
+      etl:
+        condition: service_completed_successfully
+    environment:
+      DB_HOST:     postgres
+      DB_PORT:     5432
+      DB_NAME:     animal_db
+      DB_USER:     postgres
+      DB_PASSWORD: postgres123
 
 volumes:
   postgres_data:

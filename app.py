@@ -1,173 +1,79 @@
-import re
 import os
-import requests
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import pydeck as pdk
 import streamlit as st
+from sqlalchemy import create_engine, text
+from dotenv import load_dotenv
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Config
-# ─────────────────────────────────────────────────────────────────────────────
+load_dotenv()
+
 st.set_page_config(
     page_title="Miami-Dade Animal Services",
     page_icon="🐾",
     layout="wide",
 )
 
-RAW_CSV = "animal_services.csv"
-CLEAN_CSV = "animal_services_clean.csv"
-DATE_COLS = [
-    "ticket_created_date_time",
-    "ticket_last_update_date_time",
-    "ticket_closed_date_time",
-]
-API_URL = (
-    "https://services.arcgis.com/8Pc9XBTAsYuxx9Ny/arcgis/rest"
-    "/services/Animal_Services/FeatureServer/0/query"
-)
-BATCH_SIZE = 1000
 VALID_PRIORITIES = ["Emergency", "Urgent", "Standard"]
 METHOD_THRESHOLD = 0.005
 DAY_ORDER = ["Monday", "Tuesday", "Wednesday",
              "Thursday", "Friday", "Saturday", "Sunday"]
 MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May",
                "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# ETL — from project.ipynb
-# ─────────────────────────────────────────────────────────────────────────────
-
-def extract() -> list[dict]:
-    all_data, offset = [], 0
-    while True:
-        params = {
-            "where": "1=1",
-            "outFields": "*",
-            "f": "json",
-            "resultRecordCount": BATCH_SIZE,
-            "resultOffset": offset,
-        }
-        try:
-            r = requests.get(API_URL, params=params, timeout=30)
-            r.raise_for_status()
-            data = r.json()
-        except requests.exceptions.RequestException as e:
-            st.error(f"API error: {e}")
-            break
-
-        features = data.get("features", [])
-        if not features:
-            break
-        all_data.extend(f["attributes"] for f in features)
-        if not data.get("exceededTransferLimit", False):
-            break
-        offset += len(features)
-    return all_data
-
-
-def drop_columns(df: pd.DataFrame) -> pd.DataFrame:
-    cols = ["case_owner", "case_owner_description", "created_year_month",
-            "goal_days", "issue_description", "location_city"]
-    return df.drop(columns=cols, errors="ignore")
-
-
-def date_time_fix(df: pd.DataFrame) -> pd.DataFrame:
-    for col in ["ticket_created_date_time", "ticket__last_update_date_time", "ticket_closed_date_time"]:
-        if col in df.columns:
-            df[col] = pd.to_datetime(df[col], unit="ms", errors="coerce")
-    return df
-
-
-def normalize_capitalization(df: pd.DataFrame) -> pd.DataFrame:
-    for col in df.select_dtypes(include="object").columns:
-        df[col] = df[col].str.strip().str.title()
-    for col in ["city", "ticket_status"]:
-        if col in df.columns:
-            df[col] = df[col].str.replace("_", " ")
-    return df
-
-
-def remove_duplicates(df: pd.DataFrame) -> pd.DataFrame:
-    return df.drop_duplicates(subset="ticket_id")
-
-
-def validate_zipcode(series: pd.Series) -> pd.Series:
-    def clean_zip(z):
-        if pd.isna(z):
-            return None
-        digits = re.sub(r"\D", "", str(z).strip())
-        return int(digits[:5]) if len(digits) >= 5 else None
-    return series.apply(clean_zip).astype("Int64")
-
-
-def fix_priority_typo(df: pd.DataFrame) -> pd.DataFrame:
-    if "sr_priority" in df.columns:
-        df["sr_priority"] = df["sr_priority"].str.replace(
-            "Emergncy", "Emergency", regex=False)
-    return df
-
-
-def drop_null_required(df: pd.DataFrame) -> pd.DataFrame:
-    return df.dropna(subset=["ticket_id"])
-
-
-def fix_negative_days(df: pd.DataFrame) -> pd.DataFrame:
-    if "actual_completed_days" in df.columns:
-        df.loc[df["actual_completed_days"] <
-               0, "actual_completed_days"] = pd.NA
-    return df
-
-
-def validate_coordinates(df: pd.DataFrame) -> pd.DataFrame:
-    if "latitude" in df.columns and "longitude" in df.columns:
-        invalid = (
-            df["latitude"].notna() & df["longitude"].notna() & (
-                (df["latitude"] < 24) | (df["latitude"] > 27) |
-                (df["longitude"] < -82) | (df["longitude"] > -79)
-            )
-        )
-        df.loc[invalid, ["latitude", "longitude"]] = pd.NA
-    return df
-
-
-def rename_update_column(df: pd.DataFrame) -> pd.DataFrame:
-    return df.rename(columns={"ticket__last_update_date_time": "ticket_last_update_date_time"})
-
-
-TRANSFORM_STEPS = [
-    ("Dropping unused columns…",          0.15, drop_columns),
-    ("Parsing timestamps…",               0.25, date_time_fix),
-    ("Normalizing text…",                 0.35, normalize_capitalization),
-    ("Removing duplicates…",              0.45, remove_duplicates),
-    ("Fixing priority typo…",             0.55, fix_priority_typo),
-    ("Dropping rows without ticket_id…",  0.60, drop_null_required),
-    ("Fixing negative days…",             0.65, fix_negative_days),
-    ("Validating coordinates…",           0.70, validate_coordinates),
-    ("Renaming update column…",           0.75, rename_update_column),
+DATE_COLS = [
+    "ticket_created_date_time",
+    "ticket_last_update_date_time",
+    "ticket_closed_date_time",
 ]
 
+SQL = text("""
+    SELECT
+        t.ticket_id,
+        it.name                AS issue_type,
+        t.street_address,
+        t.city,
+        t.state,
+        t.zip_code,
+        d.name                 AS neighborhood_district,
+        t.ticket_created_at    AS ticket_created_date_time,
+        t.ticket_updated_at    AS ticket_last_update_date_time,
+        t.ticket_closed_at     AS ticket_closed_date_time,
+        ts.name                AS ticket_status,
+        t.latitude,
+        t.longitude,
+        sm.name                AS method_received,
+        p.name                 AS sr_priority,
+        t.actual_completed_days
+    FROM tickets t
+    LEFT JOIN issue_types        it ON t.issue_type_id = it.id
+    LEFT JOIN ticket_statuses    ts ON t.status_id     = ts.id
+    LEFT JOIN priorities          p ON t.priority_id   = p.id
+    LEFT JOIN submission_methods sm ON t.method_id     = sm.id
+    LEFT JOIN districts           d ON t.district_id   = d.id
+""")
 
-def run_transforms(df: pd.DataFrame, progress_cb) -> pd.DataFrame:
-    for msg, pct, fn in TRANSFORM_STEPS:
-        progress_cb(msg, pct)
-        df = fn(df)
-    progress_cb("Validating zip codes…", 0.80)
-    df["zip_code"] = validate_zipcode(df["zip_code"])
-    return df
+
+@st.cache_resource
+def get_engine():
+    user = os.environ.get("DB_USER",     "postgres")
+    pwd  = os.environ.get("DB_PASSWORD", "postgres123")
+    host = os.environ.get("DB_HOST",     "localhost")
+    port = os.environ.get("DB_PORT",     "5433")
+    db   = os.environ.get("DB_NAME",     "animal_db")
+    return create_engine(f"postgresql+psycopg2://{user}:{pwd}@{host}:{port}/{db}")
 
 
 @st.cache_data
-def load_clean() -> pd.DataFrame:
-    df = pd.read_csv(CLEAN_CSV, parse_dates=DATE_COLS, date_format="mixed")
+def load_data() -> pd.DataFrame:
+    with get_engine().connect() as conn:
+        df = pd.read_sql(SQL, conn, parse_dates=DATE_COLS)
     df["zip_code"] = df["zip_code"].astype("Int64")
     return df
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Visualizations — from visualizations.ipynb
+# Visualizations
 # ─────────────────────────────────────────────────────────────────────────────
 
 def plot_issue_types(df: pd.DataFrame, top_n: int = 10) -> go.Figure:
@@ -311,62 +217,15 @@ def plot_day_hour_heatmap(df: pd.DataFrame) -> go.Figure:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Data loading / pipeline UI
-# ─────────────────────────────────────────────────────────────────────────────
-
-def ensure_data() -> pd.DataFrame:
-    # Already fully cleaned
-    if os.path.exists(CLEAN_CSV):
-        return load_clean()
-
-    # Raw CSV exists — run transforms only
-    if os.path.exists(RAW_CSV):
-        st.info("Raw CSV found — running transform pipeline…")
-        status = st.status("Running pipeline…", expanded=True)
-        bar = st.progress(0.0)
-
-        def cb(msg, pct):
-            status.write(msg)
-            bar.progress(pct)
-
-        df = pd.read_csv(RAW_CSV)
-        df = run_transforms(df, cb)
-        cb("Saving clean CSV…", 0.90)
-        df.to_csv(CLEAN_CSV, index=False)
-        cb("Done!", 1.0)
-        status.update(label="Pipeline complete!", state="complete")
-        st.cache_data.clear()
-        return load_clean()
-
-    # No data — offer API fetch
-    st.warning("No local data found.")
-    if st.button("📡 Fetch from Miami-Dade API (may take a few minutes)"):
-        status = st.status("Running full ETL pipeline…", expanded=True)
-        bar = st.progress(0.0)
-
-        def cb(msg, pct):
-            status.write(msg)
-            bar.progress(pct)
-
-        cb("Fetching from API…", 0.05)
-        raw = extract()
-        df = pd.DataFrame(raw)
-        df = run_transforms(df, cb)
-        cb("Saving clean CSV…", 0.90)
-        df.to_csv(CLEAN_CSV, index=False)
-        cb("Done!", 1.0)
-        status.update(label="Done!", state="complete")
-        st.cache_data.clear()
-        st.rerun()
-
-    st.stop()
-
-
-# ─────────────────────────────────────────────────────────────────────────────
 # App
 # ─────────────────────────────────────────────────────────────────────────────
 
-df_full = ensure_data()
+try:
+    df_full = load_data()
+except Exception as e:
+    st.error(f"Could not connect to database: {e}")
+    st.info("Make sure the ETL pipeline has run and PostgreSQL is available.")
+    st.stop()
 
 # ── sidebar filters ───────────────────────────────────────────────────────────
 st.sidebar.header("🔍 Filters")
