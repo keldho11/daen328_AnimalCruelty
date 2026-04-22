@@ -24,11 +24,12 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      DB_HOST:     postgres
-      DB_PORT:     5432
-      DB_NAME:     animal_db
-      DB_USER:     postgres
-      DB_PASSWORD: postgres123
+      DB_HOST:          postgres
+      DB_PORT:          5432
+      DB_NAME:          animal_db
+      DB_USER:          postgres
+      DB_PASSWORD:      postgres123
+      PYTHONUNBUFFERED: 1
 
   streamlit:
     build: .

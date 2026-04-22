@@ -7,11 +7,18 @@ API_URL = (
 BATCH_SIZE = 1000
 
 
-def extract() -> list[dict]:
+def extract(since_object_id: int = None) -> list[dict]:
+    if since_object_id is not None:
+        where = f"ObjectId > {since_object_id}"
+        print(f"  Incremental load: fetching records with ObjectId > {since_object_id}")
+    else:
+        where = "1=1"
+        print("  Full load: fetching all records")
+
     all_data, offset = [], 0
     while True:
         params = {
-            "where": "1=1",
+            "where": where,
             "outFields": "*",
             "f": "json",
             "resultRecordCount": BATCH_SIZE,

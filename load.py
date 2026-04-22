@@ -79,22 +79,32 @@ def load_lookup(cursor, table: str, values: list[str]) -> dict[str, int]:
 
 
 def main():
-    print("Step 1: Extracting data from API...")
-    raw = extract()
-
-    print("Step 2: Transforming data...")
-    df = transform(pd.DataFrame(raw))
-
-    print("Step 3: Connecting to PostgreSQL...")
+    print("Step 1: Connecting to PostgreSQL...")
     conn = psycopg2.connect(**DB_PARAMS)
     cur = conn.cursor()
     print(f"  Connected to {DB_PARAMS['dbname']} at {DB_PARAMS['host']}:{DB_PARAMS['port']}")
 
-    print("Step 4: Creating schema...")
+    print("Step 2: Creating schema...")
     create_schema(cur)
     conn.commit()
 
-    print("Step 5: Loading lookup tables...")
+    print("Step 3: Checking for existing data...")
+    cur.execute("SELECT MAX(arcgis_object_id) FROM tickets")
+    max_object_id = cur.fetchone()[0]
+
+    print("Step 4: Extracting data from API...")
+    raw = extract(since_object_id=max_object_id)
+
+    if not raw:
+        print("  No new records found. Pipeline complete.")
+        cur.close()
+        conn.close()
+        return
+
+    print("Step 5: Transforming data...")
+    df = transform(pd.DataFrame(raw))
+
+    print("Step 6: Loading lookup tables...")
     issue_map    = load_lookup(cur, "issue_types",        df["issue_type"].tolist())
     status_map   = load_lookup(cur, "ticket_statuses",    df["ticket_status"].tolist())
     priority_map = load_lookup(cur, "priorities",         df["sr_priority"].tolist())
@@ -102,7 +112,7 @@ def main():
     district_map = load_lookup(cur, "districts",          df["neighborhood_district"].tolist())
     conn.commit()
 
-    print("Step 6: Inserting tickets...")
+    print("Step 7: Inserting tickets...")
 
     def to_ts(val):
         return None if pd.isna(val) else val.to_pydatetime()
