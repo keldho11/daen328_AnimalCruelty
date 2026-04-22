@@ -1,18 +1,21 @@
 # load_db.py
 # Reads animal_services_clean.csv and loads it into the normalized PostgreSQL schema.
-# Run once after `docker compose up`:  python load_db.py
+# Run once after `docker compose up`: python load_db.py
 
 import os
 import pandas as pd
 import psycopg2
 from psycopg2.extras import execute_values
+from dotenv import load_dotenv
+
+load_dotenv()  # Load .env file
 
 DB_PARAMS = {
-    "dbname":   os.environ.get("DB_NAME", "animal_db"),
-    "user":     os.environ.get("DB_USER", "postgres"),
+    "dbname":   os.environ.get("DB_NAME",     "animal_db"),
+    "user":     os.environ.get("DB_USER",     "postgres"),
     "password": os.environ.get("DB_PASSWORD", "postgres123"),
-    "host":     os.environ.get("DB_HOST", "localhost"),
-    "port":     os.environ.get("DB_PORT", "5432"),
+    "host":     os.environ.get("DB_HOST",     "localhost"),
+    "port":     os.environ.get("DB_PORT",     "5433"),
 }
 
 CLEAN_CSV = "animal_services_clean.csv"
@@ -41,17 +44,24 @@ def main():
     df["zip_code"] = pd.to_numeric(df["zip_code"], errors="coerce")
     print(f"  {len(df):,} rows loaded")
 
+    print("Connecting to database...")
     conn = psycopg2.connect(**DB_PARAMS)
     cur = conn.cursor()
+    print(f"  ✓ Connected to {DB_PARAMS['dbname']} at {DB_PARAMS['host']}:{DB_PARAMS['port']}")
 
     print("Loading lookup tables...")
-    issue_map   = load_lookup(cur, "issue_types",       df["issue_type"].tolist())
-    status_map  = load_lookup(cur, "ticket_statuses",   df["ticket_status"].tolist())
-    priority_map= load_lookup(cur, "priorities",        df["sr_priority"].tolist())
-    method_map  = load_lookup(cur, "submission_methods",df["method_received"].tolist())
-    district_map= load_lookup(cur, "districts",         df["neighborhood_district"].tolist())
+    issue_map    = load_lookup(cur, "issue_types",        df["issue_type"].tolist())
+    status_map   = load_lookup(cur, "ticket_statuses",    df["ticket_status"].tolist())
+    priority_map = load_lookup(cur, "priorities",         df["sr_priority"].tolist())
+    method_map   = load_lookup(cur, "submission_methods", df["method_received"].tolist())
+    district_map = load_lookup(cur, "districts",          df["neighborhood_district"].tolist())
     conn.commit()
-    print("  Lookup tables ready")
+    print("  ✓ Lookup tables ready")
+    print(f"    issue_types:       {len(issue_map):,}")
+    print(f"    ticket_statuses:   {len(status_map):,}")
+    print(f"    priorities:        {len(priority_map):,}")
+    print(f"    submission_methods:{len(method_map):,}")
+    print(f"    districts:         {len(district_map):,}")
 
     print("Loading tickets...")
 
@@ -100,7 +110,7 @@ def main():
     conn.commit()
     cur.close()
     conn.close()
-    print(f"  {len(rows):,} tickets inserted")
+    print(f"  ✓ {len(rows):,} tickets inserted")
     print("Done.")
 
 
