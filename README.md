@@ -58,7 +58,10 @@ The database schema is created automatically by `load.py` on first run using `CR
 
 Database: `animal_db`, Host: `postgres` (internal), Port: `5432` (internal) / `5433` (host)
 
-## Group Members
+## Group Members & Contributions
 
-- Rivan Adhikari, Keshav Shrinivasan, Nick Morris, Kevin Eldho
+- Rivan Adhikari: Extration of data from the API, Normalized Capitalization, and Dockerization
+- Keshav Shrinivasan:
+- Nick Morris: 
+- Kevin Eldho: 
 
