@@ -16,6 +16,14 @@ st.set_page_config(
 )
 
 VALID_PRIORITIES = ["Emergency", "Urgent", "Standard"]
+ISSUE_REMAP = {
+    "Animal Cruelty Follow-Up":      "Animal Cruelty",
+    "Animal Cruelty Investigation":  "Animal Cruelty",
+    "Cat Trap Request":              "Trap Request",
+    "Dog Trap Request":              "Trap Request",
+    "Found Pet":                     "Lost/Found Pet",
+    "Lost Pet":                      "Lost/Found Pet",
+}
 METHOD_THRESHOLD = 0.005
 DAY_ORDER = ["Monday", "Tuesday", "Wednesday",
              "Thursday", "Friday", "Saturday", "Sunday"]
@@ -89,16 +97,18 @@ def plot_issue_types(df: pd.DataFrame, top_n: int = 10) -> go.Figure:
 
 
 def plot_tickets_over_time(df: pd.DataFrame) -> go.Figure:
+    plot_df = df.dropna(subset=["ticket_created_date_time", "issue_type"]).copy()
+    plot_df["issue_type"] = plot_df["issue_type"].replace(ISSUE_REMAP)
+    top6 = plot_df["issue_type"].value_counts().head(6).index
+    plot_df["issue_type"] = plot_df["issue_type"].where(plot_df["issue_type"].isin(top6), "Other")
     monthly = (
-        df.dropna(subset=["ticket_created_date_time"])
-        .set_index("ticket_created_date_time")
-        .resample("ME").size().reset_index()
+        plot_df.groupby([pd.Grouper(key="ticket_created_date_time", freq="ME"), "issue_type"])
+        .size().reset_index(name="count")
     )
-    monthly.columns = ["month", "count"]
-    fig = px.line(monthly, x="month", y="count",
+    fig = px.area(monthly, x="ticket_created_date_time", y="count", color="issue_type",
                   title="Tickets per Month",
-                  labels={"month": "Month", "count": "Tickets"})
-    fig.update_traces(line_color="#1f77b4")
+                  labels={"ticket_created_date_time": "Month", "count": "Tickets",
+                          "issue_type": "Issue Type"})
     return fig
 
 
@@ -270,15 +280,24 @@ st.divider()
 
 # ── map ───────────────────────────────────────────────────────────────────────
 st.subheader("📍 Request Locations")
-map_df = df.dropna(subset=["latitude", "longitude"])
+map_color_by = st.selectbox("Color dots by", ["Issue Type", "Priority"], key="map_color")
+map_df = df.dropna(subset=["latitude", "longitude"]).copy()
 if not map_df.empty:
+    color_col = "issue_type" if map_color_by == "Issue Type" else "sr_priority"
+    categories = sorted(map_df[color_col].fillna("Unknown").unique())
+    palette = px.colors.qualitative.Plotly
+    color_lookup = {}
+    for i, cat in enumerate(categories):
+        h = palette[i % len(palette)].lstrip("#")
+        color_lookup[cat] = [int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16), 180]
+    map_df["_color"] = map_df[color_col].fillna("Unknown").map(color_lookup)
     st.pydeck_chart(pdk.Deck(
         layers=[pdk.Layer(
             "ScatterplotLayer",
-            data=map_df[["latitude", "longitude", "issue_type"]],
+            data=map_df[["latitude", "longitude", "issue_type", "sr_priority", "_color"]],
             get_position="[longitude, latitude]",
-            get_color=[31, 119, 180, 160],
-            get_radius=200,
+            get_color="_color",
+            get_radius=25,
             pickable=True,
         )],
         initial_view_state=pdk.ViewState(
@@ -286,7 +305,7 @@ if not map_df.empty:
             longitude=map_df["longitude"].mean(),
             zoom=10, pitch=0,
         ),
-        tooltip={"text": "{issue_type}"},
+        tooltip={"text": "{issue_type} — {sr_priority}"},
     ))
 else:
     st.info("No geo data for current filters.")
