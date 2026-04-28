@@ -61,7 +61,7 @@ Database: `animal_db`, Host: `postgres` (internal), Port: `5432` (internal) / `5
 ## Group Members & Contributions
 
 - Rivan Adhikari: Extration of data from the API, Normalized Capitalization, and Dockerization
-- Keshav Shrinivasan:
+- Keshav Srinivasan: Cleaned and normalized address data, made map to visualize service locations
 - Nick Morris: 
 - Kevin Eldho: 
 
