@@ -6,6 +6,9 @@ A dockerized ETL pipeline and Streamlit dashboard for Miami-Dade Animal Services
 
 This project fetches data from the Miami-Dade Animal Services ArcGIS API, cleans it using pandas, stores it in a PostgreSQL database, and visualizes it in a Streamlit dashboard. The pipeline is batch-oriented and only fetches new records on each run using ArcGIS ObjectId tracking.
 
+<img width="668" height="585" alt="image" src="https://github.com/user-attachments/assets/22a2d6d4-d45b-4e55-bdf5-d343c15ca7d9" />
+
+
 ## Project Structure
 
 ```
