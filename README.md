@@ -60,8 +60,8 @@ Database: `animal_db`, Host: `postgres` (internal), Port: `5432` (internal) / `5
 
 ## Group Members & Contributions
 
-- Rivan Adhikari: Extration of data from the API, Normalized Capitalization, and Dockerization
-- Keshav Srinivasan: Cleaned and normalized address data, made map to visualize service locations
+- Rivan Adhikari: Extraction of data from the API, Normalized Capitalization, and Dockerization.
+- Keshav Srinivasan: Cleaned and normalized address data, made map to visualize service locations.
 - Nick Morris: 
-- Kevin Eldho: 
+- Kevin Eldho: Removed duplicates, validated zip codes, created the database schema, and load.py.
 
