@@ -62,6 +62,6 @@ Database: `animal_db`, Host: `postgres` (internal), Port: `5432` (internal) / `5
 
 - Rivan Adhikari: Extraction of data from the API, Normalized Capitalization, and Dockerization.
 - Keshav Srinivasan: Cleaned and normalized address data, made map to visualize service locations.
-- Nick Morris: 
+- Nick Morris: Built the Streamlit dashboard with interactive visualizations and configured Docker Compose to orchestrate the postgres, ETL, and Streamlit services.
 - Kevin Eldho: Removed duplicates, validated zip codes, created the database schema, and load.py.
 
